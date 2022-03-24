@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import mode
 
 def get_metrics(groupid, haloid, galproperty):
     """
@@ -31,7 +32,7 @@ def get_metrics(groupid, haloid, galproperty):
     purity : np.array
         At index `i`, purity of the group to which galaxy `i` belongs (duplicated for every
         group member). Purity is defined as the percentage of the number of galaxies in the group
-        that are correctly identified as part of the halo, N_s/N_g. Because N_g = N_s + N_i, we
+        that are correctly identified as part of the halo, N_s/N_g. Because N_g = N_s + N_i,
         the contamination fraction is given by 1 - purity = (N_g - N_s)/N_g = (N_i)/N_g. 
     completeness : np.array
         At index `i`, completeness of the group to which galaxy `i` belongs (duplicated for every
@@ -40,4 +41,59 @@ def get_metrics(groupid, haloid, galproperty):
     """
     groupid = np.array(groupid)
     haloid = np.array(haloid)
-    return None
+    galproperty=np.array(galproperty)
+    ngal=len(groupid)
+    completeness=np.full(ngal,-999.)
+    purity=np.full(ngal,-999.)
+    unique_groups = np.unique(groupid)
+
+    if (galproperty>-30).all() and (galproperty<-12).all():
+        central_selection = np.min # minimum mag is brightest galaxy=central
+        sortfactor=1
+    elif (galproperty>0).all():
+        central_selection = np.max # maximum mass is central
+        sortfactor=-1
+    
+    for gg in unique_groups:
+        groupsel = np.where(groupid==gg)
+        N_g = len(groupsel[0])
+        sortidx = np.argsort(sortfactor*galproperty[groupsel])
+        hh = mode(haloid[groupsel][sortidx])[0][0]
+        halosel = np.where(haloid==hh)
+        N_h = len(halosel[0])
+        N_s = np.sum(haloid[groupsel]==hh)
+        purity[groupsel]=N_s/N_g
+        completeness[groupsel]=N_s/N_h
+    return purity, completeness
+
+if __name__=='__main__':
+    import pandas as pd
+    data = pd.read_hdf("ECO_cat_0_Planck_memb_cat.hdf5")
+    pur,comp=get_metrics(data.groupid, data.haloid, data.M_r)
+    data['pur']=pur
+    data['comp']=comp
+
+    import matplotlib.pyplot as plt
+    data=data[data.g_galtype==1]
+    fig,axs = plt.subplots(ncols=2, sharey=True)
+    axs[0].scatter(data.M_group, data.pur, s=2, alpha=0.9)
+    axs[0].set_xlabel("FoF+HAM Mass")
+    axs[0].set_ylabel("group purity")
+    axs[1].hist(data.pur, log=True, histtype='step', bins=np.arange(0,1.05,0.05), orientation='horizontal')
+    axs[1].axhline(np.mean(data.pur), label='Mean', color='red')
+    axs[1].axhline(np.median(data.pur), label='Median', color='purple')
+    axs[1].legend(loc='best')
+    plt.show()
+    
+
+    fig,axs = plt.subplots(ncols=2, sharey=True)
+    axs[0].scatter(data.M_group, data.comp, s=2, alpha=0.9)
+    axs[0].set_xlabel("FoF+HAM Mass")
+    axs[0].set_ylabel("group completeness")
+    axs[1].hist(data.comp, log=True, histtype='step', bins=np.arange(0,1.05,0.05), orientation='horizontal')
+    axs[1].axhline(np.mean(data.comp), label='Mean', color='red')
+    axs[1].axhline(np.median(data.comp), label='Median', color='purple')
+    axs[1].legend(loc='best')
+    plt.show()
+    print(data[['pur','comp']].mean())
+    print(data[['pur','comp']].median())
